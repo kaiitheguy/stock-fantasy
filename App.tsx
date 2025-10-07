@@ -68,7 +68,7 @@ const generateStockBatch = (size = BATCH_SIZE): StockCard[] => {
   return batch;
 };
 
-const App = (): JSX.Element => {
+const App = (): React.JSX.Element => {
   const [cards, setCards] = useState<StockCard[]>(() => generateStockBatch());
   const [buys, setBuys] = useState(0);
 
@@ -143,7 +143,7 @@ interface StockCardViewProps {
   card: StockCard;
 }
 
-const StockCardView = ({ card }: StockCardViewProps): JSX.Element => {
+const StockCardView = ({ card }: StockCardViewProps): React.JSX.Element => {
   const changePositive = card.changePct >= 0;
   const changeColor = changePositive ? '#34c759' : '#ff453a';
   const changeLabel = `${changePositive ? '+' : ''}${card.changePct.toFixed(2)}%`;
@@ -190,7 +190,7 @@ const StockCardView = ({ card }: StockCardViewProps): JSX.Element => {
   );
 };
 
-const NoMoreCards = (): JSX.Element => (
+const NoMoreCards = (): React.JSX.Element => (
   <View style={styles.emptyCard}>
     <Text style={styles.emptyText}>加载新卡组...</Text>
   </View>

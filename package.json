@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "expo": "~54.0.12",
@@ -20,7 +21,8 @@
   "private": true,
   "devDependencies": {
     "@types/react": "~19.1.10",
-    "babel-preset-expo": "^11.0.15",
+    "babel-preset-expo": "~54.0.0",
+    "patch-package": "^8.0.0",
     "typescript": "~5.9.2"
   }
 }

@@ -1,0 +1,23 @@
+{
+  "cli": {
+    "version": ">= 16.20.2",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "autoIncrement": true
+    },
+    "production": {
+      "distribution": "store",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "halfnoir@gmail.com"
+      }
+    }
+  }
+}
