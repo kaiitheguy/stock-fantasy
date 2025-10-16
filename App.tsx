@@ -128,8 +128,7 @@ async function fetchYahooRealtime(ticker: string) {
       spark: [],
       yahooDesc: undefined,
       lastUpdated: Date.now(),
-      // @ts-expect-error custom field just for debugging
-      _err: String(e),
+      _err: String(e), // Debug: capture error message
     };
   }
 }
@@ -460,7 +459,10 @@ const App = (): React.JSX.Element => {
 
           {/* Top interactive card */}
           {topCard ? (
-            <Animated.View style={[styles.topCard, animatedTopStyle]} {...responder.panHandlers}>
+            <Animated.View 
+              style={[styles.topCard, animatedTopStyle as any]} 
+              {...responder.panHandlers}
+            >
               {renderCardBody(topCard)}
             </Animated.View>
           ) : (
