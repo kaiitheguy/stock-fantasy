@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
+import YahooFinance from 'yahoo-finance2';
 
 dotenv.config();
 
@@ -24,83 +25,63 @@ app.get('/api/health', (_req, res) => {
 });
 
 /* ------------------------------------------------------------------
-   Yahoo aggregator (quote + chart + description)
+   Yahoo aggregator (quote + chart + description) using yahoo-finance2
    ------------------------------------------------------------------ */
 app.get('/api/yahoo', async (req, res) => {
   const symbol = (req.query.symbol || '').toString().trim();
   if (!symbol) return res.status(400).json({ error: 'Missing symbol' });
 
-  const ua = { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' };
+  try {
+    const yahooFinance = new YahooFinance();
+    
+    // Fetch quote data
+    const quote = await yahooFinance.quote(symbol);
+    
+    // Fetch summary data for company description
+    const summary = await yahooFinance.quoteSummary(symbol, {
+      modules: ['assetProfile', 'summaryProfile']
+    });
 
-  const safeFetch = async (url) => {
+    // Extract price and change percentage
+    const price = quote?.regularMarketPrice || quote?.price || null;
+    const changePct = quote?.regularMarketChangePercent || quote?.regularMarketChange || null;
+    
+    // Try to fetch historical data for sparkline (optional)
+    let spark = [];
     try {
-      const r = await fetch(url, { headers: ua });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return await r.json();
-    } catch (e) {
-      console.error('[yahoo] fetch failed:', url, e);
-      return null;
+      const historical = await yahooFinance.historical(symbol, {
+        period1: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
+        period2: new Date(),
+        interval: '1d'
+      });
+      spark = historical
+        ?.map(item => item.close)
+        .filter(price => typeof price === 'number' && !isNaN(price)) || [];
+    } catch (histError) {
+      console.log('[yahoo-finance2] Historical data failed, using empty sparkline:', histError.message);
+      spark = [];
     }
-  };
 
-  const [quote, chart, summary] = await Promise.all([
-    safeFetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
-        symbol
-      )}`
-    ),
-    safeFetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-        symbol
-      )}?range=1d&interval=1m`
-    ),
-    safeFetch(
-      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(
-        symbol
-      )}?modules=assetProfile,summaryProfile`
-    ),
-  ]);
+    // Extract company description
+    const yahooDesc = summary?.assetProfile?.longBusinessSummary || 
+                     summary?.summaryProfile?.longBusinessSummary || 
+                     null;
 
-  let price = null,
-    changePct = null,
-    spark = [],
-    yahooDesc;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ 
+      price, 
+      changePct, 
+      spark, 
+      yahooDesc 
+    });
 
-  try {
-    const r = quote?.quoteResponse?.result?.[0];
-    price = r?.regularMarketPrice ?? null;
-    changePct = r?.regularMarketChangePercent ?? null;
-  } catch {}
-
-  try {
-    const R = chart?.chart?.result?.[0];
-    const closes = R?.indicators?.quote?.[0]?.close ?? [];
-    spark = (closes || []).filter((v) => typeof v === 'number');
-
-    // fallbacks if quote failed
-    if ((!price || !Number.isFinite(price)) && R?.meta?.regularMarketPrice) {
-      price = R.meta.regularMarketPrice;
-    }
-    if (
-      (changePct == null || !Number.isFinite(changePct)) &&
-      typeof price === 'number' &&
-      typeof R?.meta?.previousClose === 'number' &&
-      R.meta.previousClose > 0
-    ) {
-      changePct = ((price - R.meta.previousClose) / R.meta.previousClose) * 100;
-    }
-  } catch {}
-
-  try {
-    const rr = summary?.quoteSummary?.result?.[0];
-    yahooDesc =
-      rr?.assetProfile?.longBusinessSummary ||
-      rr?.summaryProfile?.longBusinessSummary ||
-      undefined;
-  } catch {}
-
-  res.setHeader('Cache-Control', 'no-store');
-  res.json({ price, changePct, spark, yahooDesc });
+  } catch (error) {
+    console.error('[yahoo-finance2] Error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch stock data', 
+      detail: error.message 
+    });
+  }
 });
 
 /* ------------------------------------------------------------------
