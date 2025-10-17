@@ -55,7 +55,7 @@ const SWIPE_THRESHOLD = 110;
 const API_BASE =
   (Constants?.expoConfig as any)?.extra?.EXPO_PUBLIC_API_BASE ??
   process.env.EXPO_PUBLIC_API_BASE ??
-  '';
+  'https://stock-fantasy.onrender.com';
 console.log('API_BASE =', API_BASE);
 
 const STOCK_UNIVERSE: readonly StockDescriptor[] = [
