@@ -1,6 +1,6 @@
 # Stock Fantasy
 
-一个基于React Native的股票投资模拟应用，支持实时股票数据、AI分析和投资决策。
+一个基于 React Native 的股票投资模拟应用，通过面向对象的服务层组织实时行情、AI 分析和投资决策逻辑。
 
 ## 功能特性
 
@@ -18,20 +18,17 @@
 - React Native Animated
 - React Native SVG
 
-### 后端
-- Node.js
-- Express
-- Yahoo Finance API
-- OpenAI API
+### 服务依赖
+- 自建或托管的行情聚合服务（兼容 Yahoo Finance 代理接口）
+- AI 分析服务（默认使用远程 API_BASE）
+- Render / Vercel 等可选部署平台
 
 ## 项目结构
 
 ```
 stock-fantasy/
 ├── App.tsx                 # 主应用组件
-├── backend/               # 后端服务
-│   ├── server.js         # Express服务器
-│   └── package.json      # 后端依赖
+├── services/StockDomain.ts # 股票领域模型与服务类
 ├── assets/               # 应用资源
 ├── ios/                  # iOS配置
 └── package.json         # 前端依赖
@@ -42,32 +39,19 @@ stock-fantasy/
 ### 1. 安装依赖
 
 ```bash
-# 安装前端依赖
-npm install
-
-# 安装后端依赖
-cd backend
 npm install
 ```
 
 ### 2. 环境变量配置
 
-创建 `.env` 文件在 `backend/` 目录下：
+在项目根目录创建 `.env` 文件，自定义后端基础地址（可选）：
 
 ```env
-OPENAI_API_KEY=your_openai_api_key_here
-PORT=3000
+EXPO_PUBLIC_API_BASE=https://stock-fantasy-api.onrender.com
 ```
 
 ### 3. 启动开发服务器
 
-#### 启动后端服务
-```bash
-cd backend
-npm start
-```
-
-#### 启动前端应用
 ```bash
 npm start
 ```
@@ -104,34 +88,9 @@ eas build -p ios --profile production
 eas submit -p ios --latest
 ```
 
-### 后端部署
-
-#### 部署到 Render.com
-
-1. 连接 GitHub 仓库到 Render
-2. 设置环境变量：
-   - `OPENAI_API_KEY`: 你的 OpenAI API 密钥
-   - `PORT`: 3000
-
-3. 构建命令：
-```bash
-cd backend && npm install
-```
-
-4. 启动命令：
-```bash
-npm start
-```
-
-#### 本地后端测试
-```bash
-cd backend
-npm start
-```
-
-后端服务将在 `http://localhost:3000` 启动
-
 ## API 端点
+
+前端通过 `EXPO_PUBLIC_API_BASE` 指向的后端服务访问以下接口：
 
 ### 健康检查
 ```
@@ -159,10 +118,10 @@ Content-Type: application/json
 ## 开发指南
 
 ### 添加新股票
-在 `App.tsx` 中的 `STOCK_UNIVERSE` 数组添加新股票：
+在 `services/StockDomain.ts` 中的 `STOCK_UNIVERSE` 常量添加新股票：
 
 ```typescript
-const STOCK_UNIVERSE: readonly StockDescriptor[] = [
+export const STOCK_UNIVERSE = [
   { ticker: 'AAPL', name: 'Apple Inc.' },
   { ticker: 'MSFT', name: 'Microsoft Corp.' },
   // 添加新股票
@@ -171,14 +130,28 @@ const STOCK_UNIVERSE: readonly StockDescriptor[] = [
 ```
 
 ### 自定义 AI 分析
-修改 `backend/server.js` 中的 AI 提示词：
-
-```javascript
-const system = 'You are an equity analyst. Be neutral, concise, and factual.';
-```
+`AIInsightService` 通过 `POST /api/rationale` 请求 AI 观点。若需改写分析逻辑，可以：
+- 在自建后端中调整提示词或业务规则，并部署为新的 API。
+- 更新 `.env` 中的 `EXPO_PUBLIC_API_BASE` 指向新的服务地址。
 
 ### 样式定制
 所有样式定义在 `App.tsx` 的 `styles` 对象中，可以自定义颜色、字体和布局。
+
+### 服务层扩展
+`services/StockDomain.ts` 聚合了应用的核心业务逻辑：
+- `StockDeckService`：控制卡片批次生成与洗牌。
+- `YahooFinanceService`：封装行情请求与容错处理。
+- `AIInsightService`：统一管理 AI 分析请求。
+- `SparklineBuilder`：生成迷你走势图的 SVG path。
+
+你可以在此文件中扩展新的服务或覆写默认行为，让界面层保持简洁。
+
+### 质量检查
+开发过程中建议运行 TypeScript 检查，确保类型安全：
+
+```bash
+npx tsc --noEmit
+```
 
 ## 故障排除
 
@@ -189,8 +162,8 @@ const system = 'You are an equity analyst. Be neutral, concise, and factual.';
    - 验证股票代码是否正确
 
 2. **AI 分析失败**
-   - 确认 OpenAI API 密钥正确
-   - 检查 API 配额
+   - 确认 `EXPO_PUBLIC_API_BASE` 指向的服务可用
+   - 检查后端日志或第三方 API 配额
 
 3. **构建失败**
    - 确保所有依赖已安装

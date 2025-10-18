@@ -1,5 +1,4 @@
 // App.tsx
-import Constants from 'expo-constants';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -18,175 +17,31 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import Svg, { Path } from 'react-native-svg';
 
-type StockCard = {
-  id: string;
-  ticker: string;
-  name: string;
-};
+import {
+  API_BASE,
+  AIInsightService,
+  SparklineBuilder,
+  StockDeckService,
+  STOCK_UNIVERSE,
+  YahooFinanceService,
+  type AIInsight,
+  type BuyTransaction,
+  type Realtime,
+  type StockCard,
+} from './services/StockDomain';
 
-type BuyTransaction = {
-  id: string;
-  ticker: string;
-  name: string;
-  price: number;
-  timestamp: number;
-};
-
-type StockDescriptor = { ticker: string; name: string };
-
-type Realtime = {
-  price: number | null;
-  changePct: number | null;
-  spark: number[];           // recent close prices (1d, 1m interval)
-  yahooDesc?: string;        // Yahoo longBusinessSummary
-  lastUpdated: number;       // ms
-};
-
-type AIInsight = {
-  companyDescription: string;
-  buy: string;
-  buyProbability: number;
-  sell: string;
-  sellProbability: number;
-};
-
-const BATCH_SIZE = 12;
 const SWIPE_THRESHOLD = 110;
-const API_BASE =
-  (Constants?.expoConfig as any)?.extra?.EXPO_PUBLIC_API_BASE ??
-  process.env.EXPO_PUBLIC_API_BASE ??
-  'https://stock-fantasy-api.onrender.com';
 console.log('API_BASE =', API_BASE);
 
-const STOCK_UNIVERSE: readonly StockDescriptor[] = [
-  { ticker: 'AAPL', name: 'Apple Inc.' },
-  { ticker: 'MSFT', name: 'Microsoft Corp.' },
-  { ticker: 'GOOGL', name: 'Alphabet Inc.' },
-  { ticker: 'NVDA', name: 'NVIDIA Corp.' },
-  { ticker: 'TSLA', name: 'Tesla, Inc.' },
-  { ticker: 'AMZN', name: 'Amazon.com Inc.' },
-  { ticker: 'META', name: 'Meta Platforms Inc.' },
-  { ticker: 'NFLX', name: 'Netflix, Inc.' },
-  { ticker: 'BABA', name: 'Alibaba Group' },
-  { ticker: 'ORCL', name: 'Oracle Corp.' },
-  { ticker: 'AMD', name: 'Advanced Micro Devices' },
-  { ticker: 'INTC', name: 'Intel Corp.' },
-  { ticker: 'SHOP', name: 'Shopify Inc.' },
-  { ticker: 'CRM', name: 'Salesforce, Inc.' },
-  { ticker: 'UBER', name: 'Uber Technologies' },
-  { ticker: 'COIN', name: 'Coinbase Global' },
-] as const;
+const deckService = new StockDeckService(STOCK_UNIVERSE);
+const yahooFinanceService = new YahooFinanceService(API_BASE);
+const aiInsightService = new AIInsightService(API_BASE);
+const sparklineBuilder = new SparklineBuilder();
 
 const w = Dimensions.get('window').width;
 
-const shuffle = <T,>(items: readonly T[]): T[] => {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-};
-
-const generateStockBatch = (size = BATCH_SIZE): StockCard[] => {
-  const pool = shuffle(STOCK_UNIVERSE);
-  const batch: StockCard[] = [];
-  for (let i = 0; i < size; i++) {
-    const d = pool[i % pool.length];
-    batch.push({
-      id: `${d.ticker}-${Math.random().toString(16).slice(2, 8)}-${Date.now()}`,
-      ticker: d.ticker,
-      name: d.name,
-    });
-  }
-  return batch;
-};
-
-/** -------- Yahoo helpers (client-side) --------
- * We hit 3 endpoints:
- *  1) quote    v7/finance/quote?symbols=SYM   -> price, change %
- *  2) chart    v8/finance/chart/SYM?range=1d&interval=1m -> sparkline
- *  3) summary  v10/finance/quoteSummary/SYM?modules=assetProfile,summaryProfile -> description
- *
- * RN isn't a browser, so CORS doesn't block these. Some tickers may lack fields—handle nulls.
- */
-
-async function fetchYahooRealtime(ticker: string) {
-  try {
-    console.log('fetchYahooRealtime ->', ticker, `${API_BASE}/api/yahoo`);
-    const r = await fetch(
-      `${API_BASE.replace(/\/$/, '')}/api/yahoo?symbol=${encodeURIComponent(ticker)}`
-    );
-    if (!r.ok) throw new Error(`Yahoo fetch failed ${r.status}`);
-    const j = await r.json();
-    console.log('yahoo ok ->', ticker, {
-      price: j?.price, changePct: j?.changePct,
-      sparkLen: Array.isArray(j?.spark) ? j.spark.length : 0,
-      hasDesc: !!j?.yahooDesc,
-    });
-    return {
-      price: typeof j.price === 'number' ? j.price : null,
-      changePct: typeof j.changePct === 'number' ? j.changePct : null,
-      spark: Array.isArray(j.spark) ? j.spark : [],
-      yahooDesc: j.yahooDesc || undefined,
-      lastUpdated: Date.now(),
-    };
-  } catch (e) {
-    console.warn('yahoo error ->', ticker, e);
-    return {
-      price: null,
-      changePct: null,
-      spark: [],
-      yahooDesc: undefined,
-      lastUpdated: Date.now(),
-      _err: String(e), // Debug: capture error message
-    };
-  }
-}
-
-async function fetchAIInsight(
-  symbol: string,
-  name: string,
-  snapshot: { price: number | null; changePct: number | null }
-): Promise<AIInsight | null> {
-  try {
-    console.log('fetchAI ->', symbol, `${API_BASE}/api/rationale`);
-    const res = await fetch(`${API_BASE.replace(/\/$/, '')}/api/rationale`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, name, price: snapshot.price, changePct: snapshot.changePct }),
-    });
-    if (!res.ok) throw new Error(`AI ${res.status}`);
-    const data = (await res.json()) as AIInsight;
-    console.log('ai ok ->', symbol, {
-      buyP: data.buyProbability, sellP: data.sellProbability
-    });
-    return data;
-  } catch (e) {
-    console.warn('AI insight failed', e);
-    return null;
-  }
-}
-
-
-/** Build a simple sparkline path from values. */
-function buildSparkPath(values: number[], width: number, height: number): string {
-  if (!values || values.length < 2) return '';
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const dx = width / (values.length - 1 || 1);
-  const scaleY = (v: number) =>
-    height - (max === min ? height / 2 : ((v - min) / (max - min)) * height);
-
-  let d = `M 0 ${scaleY(values[0]).toFixed(2)}`;
-  for (let i = 1; i < values.length; i++) {
-    d += ` L ${Number(i * dx).toFixed(2)} ${scaleY(values[i]).toFixed(2)}`;
-  }
-  return d;
-}
-
 const App = (): React.JSX.Element => {
-  const [cards, setCards] = useState<StockCard[]>(() => generateStockBatch());
+  const [cards, setCards] = useState<StockCard[]>(() => deckService.generateBatch());
   const [index, setIndex] = useState(0);
   const [buys, setBuys] = useState(0);
   const [buyHistory, setBuyHistory] = useState<BuyTransaction[]>([]);
@@ -232,8 +87,6 @@ const App = (): React.JSX.Element => {
   useEffect(() => {
     const visibleCards = [topCard, next1, next2].filter(Boolean) as StockCard[];
     const nextCards = cards.slice(index + 3, index + 5).filter(Boolean) as StockCard[];
-    const allCards = [...visibleCards, ...nextCards];
-    
     // Priority loading: visible cards first, then next cards
     const loadCardData = async (card: StockCard, priority: 'high' | 'low') => {
       const stale =
@@ -245,7 +98,7 @@ const App = (): React.JSX.Element => {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         
-        const data = await fetchYahooRealtime(card.ticker);
+        const data = await yahooFinanceService.fetchRealtime(card.ticker);
         setRt((m) => ({ ...m, [card.ticker]: data }));
       }
     };
@@ -268,7 +121,7 @@ const App = (): React.JSX.Element => {
       setIsPreloading(true);
       // Generate new batch in background
       setTimeout(() => {
-        setCards(generateStockBatch());
+        setCards(deckService.generateBatch());
         setIndex(0);
         setIsPreloading(false);
       }, 50); // Small delay to ensure smooth transition
@@ -279,7 +132,7 @@ const App = (): React.JSX.Element => {
       if (index >= cards.length - 3 && !isPreloading) {
         setIsPreloading(true);
         setTimeout(() => {
-          const newBatch = generateStockBatch();
+          const newBatch = deckService.generateBatch();
           setCards(prev => [...prev, ...newBatch]);
           setIsPreloading(false);
         }, 100);
@@ -351,7 +204,7 @@ const App = (): React.JSX.Element => {
     };
     
     try {
-      const insight = await fetchAIInsight(ticker, name, snapshot);
+      const insight = await aiInsightService.fetchInsight(ticker, name, snapshot);
       if (insight) {
         setAi(prev => ({ ...prev, [ticker]: insight }));
         setAiError(prev => ({ ...prev, [ticker]: false }));
@@ -452,14 +305,9 @@ const App = (): React.JSX.Element => {
           ? '#34c759'
           : '#ff453a'
         : '#9aa6bf';
-      
-      {(live as any)?._err ? (
-        <Text style={{ color: '#ff8b84', marginTop: 6, fontSize: 12 }}>
-          数据加载失败：{(live as any)._err}
-        </Text>
-      ) : null}
-      
-    const path = live?.spark?.length ? buildSparkPath(live.spark, w - 48 - 24, 48) : '';
+    const debugError = live?.debugError;
+
+    const path = live?.spark?.length ? sparklineBuilder.buildPath(live.spark, w - 48 - 24, 48) : '';
 
     return (
       <View style={styles.card}>
@@ -509,6 +357,11 @@ const App = (): React.JSX.Element => {
 
         {/* Yahoo Description (attribution) */}
         <View>
+          {debugError ? (
+            <Text style={{ color: '#ff8b84', marginTop: 6, fontSize: 12 }}>
+              数据加载失败：{debugError}
+            </Text>
+          ) : null}
           <Text style={styles.metaLabel}>公司简介（Yahoo）</Text>
           {live?.yahooDesc ? (
             <View>
